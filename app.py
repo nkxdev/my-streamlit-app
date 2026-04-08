@@ -9,27 +9,37 @@ from utils import extract_pdf, extract_docx
 from skills import SKILLS
 
 # -------------------- PAGE CONFIG --------------------
-st.set_page_config(page_title="AI Resume Screener", layout="wide")
+st.set_page_config(page_title="AI Resume Analyzer", page_icon="📄", layout="wide")
 
-# -------------------- CUSTOM CSS --------------------
+# -------------------- UI DESIGN --------------------
 st.markdown("""
-<style>
-.big-title {
-    font-size:40px;
-    font-weight:bold;
-    color:#4CAF50;
-}
-.card {
-    padding:15px;
-    border-radius:10px;
-    background-color:#1e1e1e;
-    margin-bottom:10px;
-}
-</style>
+    <style>
+    .main {
+        background-color: #f5f7fa;
+    }
+    h1 {
+        color: #4CAF50;
+        text-align: center;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
-# -------------------- TITLE --------------------
-st.markdown('<p class="big-title">🚀 AI Resume Screening System</p>', unsafe_allow_html=True)
+st.title("📄 AI Resume Analyzer")
+st.write("Upload your resume and get skill insights 🚀")
+
+# -------------------- GRAPH FUNCTION --------------------
+def plot_scores(names, scores):
+    fig, ax = plt.subplots(figsize=(10,5))
+
+    ax.barh(names, scores)
+    ax.set_xlabel("Score")
+    ax.set_title("Resume Ranking")
+
+    # Show values on bars
+    for i, v in enumerate(scores):
+        ax.text(v + 0.5, i, str(v), va='center')
+
+    st.pyplot(fig)
 
 # -------------------- INPUT --------------------
 uploaded_files = st.file_uploader("📄 Upload Multiple Resumes", accept_multiple_files=True)
@@ -39,7 +49,7 @@ job_desc = st.text_area("🧾 Paste Job Description")
 def extract_skills(text):
     found = []
     for skill in SKILLS:
-        if skill in text:
+        if skill.lower() in text:
             found.append(skill)
     return found
 
@@ -91,20 +101,16 @@ if uploaded_files and job_desc:
     for r in results:
         st.markdown(f"### 📄 {r['name']}")
 
-        # Progress Bar
         st.progress(int(r["score"]))
-
         st.write(f"✅ Score: {r['score']} %")
         st.write(f"🧠 Skills: {r['skills']}")
         st.write(f"❌ Missing Skills: {r['missing']}")
 
-        # Suggestions
         if r["missing"]:
             st.info(f"💡 Improve by adding: {', '.join(r['missing'])}")
         else:
             st.success("🎉 Perfect Skill Match!")
 
-        # Selection
         if r["score"] > 70:
             st.success("🎯 Selected")
         else:
@@ -118,13 +124,11 @@ if uploaded_files and job_desc:
     names = [r["name"] for r in results]
     scores = [r["score"] for r in results]
 
-    plt.figure()
-    plt.bar(names, scores)
-    plt.xlabel("Candidates")
-    plt.ylabel("Score")
-    plt.title("Resume Ranking")
+    # Sort for better visualization
+    sorted_data = sorted(zip(scores, names), reverse=True)
+    scores, names = zip(*sorted_data)
 
-    st.pyplot(plt)
+    plot_scores(names, scores)
 
 else:
     st.warning("⚠️ Please upload resume and enter job description")
