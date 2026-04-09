@@ -307,6 +307,16 @@ def semantic_similarity(text1, text2):
 
 def generate_wordcloud(text, title):
     """Generate word cloud visualization"""
+    # Validate that text has sufficient content
+    if not text or len(text.strip()) < 50:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.text(0.5, 0.5, "Insufficient text to generate word cloud", 
+                ha='center', va='center', color='white', fontsize=12)
+        ax.axis('off')
+        ax.set_facecolor('none')
+        fig.patch.set_alpha(0)
+        return fig
+    
     wordcloud = WordCloud(
         width=400, 
         height=200, 
@@ -645,10 +655,15 @@ if uploaded_files and job_desc:
                 # Radar Chart
                 radar_data = {
                     "Semantic": result["semantic_score"],
-                    "Skills": result["skill_score"],
-                    "Experience": result["experience_score"],
-                    "Education": result["education_score"],
-                    "ATS": result["ats_score"]
+                                    # Word Cloud
+                if enable_wordcloud:
+                    st.markdown("#### ☁️ Keyword Cloud")
+                    try:
+                        wc_fig = generate_wordcloud(result["text"], "Resume Keywords")
+                        st.pyplot(wc_fig)
+                    except Exception as e:
+                        st.warning(f"Could not generate word cloud: {str(e)}")
+                    
                 }
                 
                 fig = create_radar_chart(radar_data)
