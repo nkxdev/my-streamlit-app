@@ -549,36 +549,21 @@ if uploaded_files and job_desc:
     
     # Color coding
     def color_score(val):
-    try:
-        num = float(val.replace('%', ''))
-        if num >= 80:
-            return 'background-color: rgba(0,255,136,0.3); color: #00ff88; font-weight: bold'
-        elif num >= 60:
-            return 'background-color: rgba(255,193,7,0.3); color: #ffc107; font-weight: bold'
-        else:
-            return 'background-color: rgba(255,65,108,0.3); color: #ff416c; font-weight: bold'
-    except:
-        return ''
-
-
-def highlight_row(row):
-    styles = []
-    for col in ["Overall", "Semantic", "Skills", "Exp", "Edu", "ATS"]:
         try:
-            val = float(row[col].replace('%', ''))
-            if val >= 80:
-                styles.append('background-color: rgba(0,255,136,0.3)')
-            elif val >= 60:
-                styles.append('background-color: rgba(255,193,7,0.3)')
-            else:
-                styles.append('background-color: rgba(255,65,108,0.3)')
+            num = float(val.replace('%', ''))
+            if num >= 80: return 'background-color: rgba(0,255,136,0.3); color: #00ff88; font-weight: bold'
+            elif num >= 60: return 'background-color: rgba(255,193,7,0.3); color: #ffc107; font-weight: bold'
+            else: return 'background-color: rgba(255,65,108,0.3); color: #ff416c; font-weight: bold'
         except:
-            styles.append('')
-    return styles
-
-styled_df = df.style.apply(highlight_row, axis=1)
-st.dataframe(styled_df, use_container_width=True)
+            return ''
     
+    
+    styled_df = df.style.applymap(
+    color_score,
+    subset=["Overall", "Semantic", "Skills", "Exp", "Edu", "ATS"]
+    )
+
+    st.write(styled_df)
     
     # -------------------- DETAILED ANALYSIS --------------------
     st.markdown("---")
