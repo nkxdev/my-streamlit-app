@@ -655,17 +655,10 @@ if uploaded_files and job_desc:
                 # Radar Chart
                 radar_data = {
                     "Semantic": result["semantic_score"],
-                                    # Word Cloud
-                                
-                # Word Cloud
-                if enable_wordcloud:
-                    st.markdown("#### ☁️ Keyword Cloud")
-                    try:
-                        wc_fig = generate_wordcloud(result["text"], "Resume Keywords")
-                        st.pyplot(wc_fig)
-                    except Exception as e:
-                        st.warning(f"Could not generate word cloud: {str(e)}")
-                    
+                    "Skills": result["skill_score"],
+                    "Experience": result["experience_score"],
+                    "Education": result["education_score"],
+                    "ATS": result["ats_score"]
                 }
                 
                 fig = create_radar_chart(radar_data)
@@ -674,8 +667,11 @@ if uploaded_files and job_desc:
                 # Word Cloud
                 if enable_wordcloud:
                     st.markdown("#### ☁️ Keyword Cloud")
-                    wc_fig = generate_wordcloud(result["text"], "Resume Keywords")
-                    st.pyplot(wc_fig)
+                    try:
+                        wc_fig = generate_wordcloud(result["text"], "Resume Keywords")
+                        st.pyplot(wc_fig)
+                    except Exception as e:
+                        st.warning(f"Could not generate word cloud: {str(e)}")
     
     # -------------------- COMPARATIVE ANALYSIS --------------------
     st.markdown("---")
