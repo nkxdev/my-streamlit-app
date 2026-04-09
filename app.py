@@ -656,6 +656,8 @@ if uploaded_files and job_desc:
                 radar_data = {
                     "Semantic": result["semantic_score"],
                                     # Word Cloud
+                                
+                # Word Cloud
                 if enable_wordcloud:
                     st.markdown("#### ☁️ Keyword Cloud")
                     try:
