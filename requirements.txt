@@ -3,6 +3,12 @@ pandas
 numpy
 matplotlib
 scikit-learn
+wordcloud
 PyPDF2
+pdfplumber
 python-docx
-nltk
+openpyxl
+Pillow
+lxml
+setuptools
+wheel
