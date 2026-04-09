@@ -557,7 +557,8 @@ if uploaded_files and job_desc:
         except:
             return ''
     
-    
+    cols = ["Overall", "Semantic", "Skills", "Exp", "Edu", "ATS"]
+    existing_cols = [col for col in cols if col in df.columns]
     styled_df = df.style.applymap(
     color_score,
     subset=["Overall", "Semantic", "Skills", "Exp", "Edu", "ATS"]
