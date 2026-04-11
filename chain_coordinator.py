@@ -1,111 +1,112 @@
 # chain_coordinator.py
-from agents import (
-    job_analyzer,
-    resume_analyzer,
-    skill_matcher,
-    experience_scorer,
-    final_scorer,
-    recommendation_generator
-)
+import json
+from typing import List, Dict, Any
+from agents import ResumeAnalysisAgents, AgentResponse
+import streamlit as st
 
-class ChainRunner:
-    """Runs all agents in sequence (like a manager)"""
+class ChainCoordinator:
+    """Coordinates the chain of agents"""
     
-    def run_full_chain(self, job_description, resume_text):
-        """
-        Run all agents one after another
-        Each one receives info from previous ones
-        """
-        
-        print("🔄 Starting Chain Analysis...\n")
-        
-        # ========== STEP 1 ==========
-        print("Step 1: Analyzing Job Requirements...")
-        job_info = job_analyzer(job_description)
-        print(f"✅ Done!\n")
-        print(job_info)
-        print("\n" + "="*50 + "\n")
-        
-        # ========== STEP 2 ==========
-        print("Step 2: Analyzing Resume...")
-        resume_info = resume_analyzer(resume_text)
-        print(f"✅ Done!\n")
-        print(resume_info)
-        print("\n" + "="*50 + "\n")
-        
-        # ========== STEP 3 ==========
-        print("Step 3: Matching Skills (uses info from Step 1 & 2)...")
-        skill_info = skill_matcher(
-            job_description,
-            resume_text,
-            job_info,           # ← From step 1
-            resume_info         # ← From step 2
-        )
-        print(f"✅ Done!\n")
-        print(skill_info)
-        print("\n" + "="*50 + "\n")
-        
-        # ========== STEP 4 ==========
-        print("Step 4: Scoring Experience (uses info from all above)...")
-        experience_info = experience_scorer(
-            job_info,           # ← From step 1
-            resume_info,        # ← From step 2
-            skill_info          # ← From step 3
-        )
-        print(f"✅ Done!\n")
-        print(experience_info)
-        print("\n" + "="*50 + "\n")
-        
-        # ========== STEP 5 ==========
-        print("Step 5: Calculating Final Score (combines everything)...")
-        combined_info = f"""
-        Job Analysis: {job_info}
-        Resume Analysis: {resume_info}
-        Skills Match: {skill_info}
-        Experience Score: {experience_info}
-        """
-        
-        final_info = final_scorer(combined_info)
-        print(f"✅ Done!\n")
-        print(final_info)
-        print("\n" + "="*50 + "\n")
-        
-        # ========== STEP 6 ==========
-        print("Step 6: Generating Recommendations (final step)...")
-        recommendations = recommendation_generator(
-            resume_text,
-            final_info,         # ← From step 5
-            combined_info       # ← All previous info
-        )
-        print(f"✅ Done!\n")
-        print(recommendations)
-        
-        # Return everything
-        return {
-            "step1_job_analysis": job_info,
-            "step2_resume_analysis": resume_info,
-            "step3_skill_matching": skill_info,
-            "step4_experience_scoring": experience_info,
-            "step5_final_score": final_info,
-            "step6_recommendations": recommendations
-        }
-
-
-# ========== EXAMPLE USAGE ==========
-if __name__ == "__main__":
-    chain = ChainRunner()
+    def __init__(self):
+        self.agents = ResumeAnalysisAgents()
+        self.chain_history = []
     
-    job_desc = """
-    We need a Python Developer with 3+ years experience
-    Skills needed: Python, Django, PostgreSQL, Docker
-    Education: Bachelor's in CS
-    """
+    def parse_json_response(self, response_text: str) -> dict:
+        """Safely parse JSON from agent response"""
+        try:
+            # Try to find JSON block in response
+            if "```json" in response_text:
+                json_str = response_text.split("```json")[1].split("```")[0]
+            elif "{" in response_text:
+                json_str = response_text[response_text.find("{"):response_text.rfind("}")+1]
+            else:
+                return {"raw": response_text}
+            
+            return json.loads(json_str)
+        except:
+            return {"raw": response_text}
     
-    resume = """
-    Name: John Doe
-    Skills: Python, Flask, MySQL, Git
-    Experience: 5 years as Python developer
-    Education: BS in Computer Science
-    """
+    def run_analysis_chain(self, job_description: str, resume_texts: List[str]) -> List[Dict]:
+        """Run complete analysis chain for all resumes"""
+        
+        results = []
+        
+        # STEP 1: Analyze Job Requirements (Once for all candidates)
+        st.write("🔍 **Step 1:** Analyzing Job Requirements...")
+        job_analysis = self.agents.analyze_job_requirements(job_description)
+        self.chain_history.append(job_analysis)
+        job_context = job_analysis.response
+        st.success("✅ Job requirements analyzed")
+        
+        # STEP 2-6: Process each resume through the chain
+        for idx, resume_text in enumerate(resume_texts):
+            st.write(f"\n📄 **Processing Resume {idx + 1}**")
+            
+            # STEP 2: Analyze Resume
+            st.write("   ├─ Analyzing resume content...")
+            resume_analysis = self.agents.analyze_resume(
+                resume_text, 
+                context=job_context
+            )
+            self.chain_history.append(resume_analysis)
+            
+            # STEP 3: Find Skill Matches
+            st.write("   ├─ Matching skills...")
+            skill_matching = self.agents.find_skill_matches(
+                job_context,
+                resume_analysis.response,
+                context=f"{job_analysis.response}\n{resume_analysis.response}"
+            )
+            self.chain_history.append(skill_matching)
+            
+            # STEP 4: Score Experience
+            st.write("   ├─ Evaluating experience...")
+            exp_scoring = self.agents.score_experience(
+                job_context,
+                resume_analysis.response,
+                context=f"{skill_matching.response}"
+            )
+            self.chain_history.append(exp_scoring)
+            
+            # STEP 5: Calculate Overall Score
+            st.write("   ├─ Computing overall match score...")
+            all_analyses = [job_analysis, resume_analysis, skill_matching, exp_scoring]
+            overall_score = self.agents.calculate_overall_score(
+                all_analyses,
+                job_description,
+                context="Combining all analyses..."
+            )
+            self.chain_history.append(overall_score)
+            
+            # STEP 6: Generate Recommendations
+            st.write("   └─ Generating recommendations...")
+            candidate_name = resume_text.split('\n')[0][:30]  # Extract name from resume
+            recommendations = self.agents.generate_recommendations(
+                candidate_name,
+                float(self._extract_score(overall_score.response)),
+                all_analyses,
+                context=overall_score.response
+            )
+            self.chain_history.append(recommendations)
+            
+            # Compile result
+            result = {
+                "candidate_idx": idx + 1,
+                "resume_text": resume_text,
+                "job_analysis": self.parse_json_response(job_analysis.response),
+                "resume_analysis": self.parse_json_response(resume_analysis.response),
+                "skill_matching": self.parse_json_response(skill_matching.response),
+                "experience_scoring": self.parse_json_response(exp_scoring.response),
+                "overall_score": self.parse_json_response(overall_score.response),
+                "recommendations": self.parse_json_response(recommendations.response),
+            }
+            results.append(result)
+            st.success(f"✅ Resume {idx + 1} completed")
+        
+        return results
     
-    results = chain.run_full_chain(job_desc, resume)
+    def _extract_score(self, response: str) -> float:
+        """Extract numeric score from response"""
+        import re
+        match = re.search(r'\d+(?:\.\d+)?', response)
+        return float(match.group()) if match else 50.0
