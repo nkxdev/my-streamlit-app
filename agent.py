@@ -1,167 +1,172 @@
 # agents.py
 import anthropic
+from typing import Optional
+from dataclasses import dataclass
 
-class SimpleAgent:
-    """A single AI agent that answers questions"""
+@dataclass
+class AgentResponse:
+    agent_name: str
+    response: str
+    data: dict = None
+
+class ResumeAnalysisAgents:
+    def __init__(self, api_key: Optional[str] = None):
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model = "claude-3-5-sonnet-20241022"
     
-    def __init__(self):
-        # Connect to Claude AI
-        self.client = anthropic.Anthropic(api_key="your-key-here")
-    
-    def ask_question(self, question, previous_info=""):
-        """
-        Ask AI a question
+    def _call_agent(self, agent_name: str, prompt: str, context: str = "") -> AgentResponse:
+        """Generic agent call with chain prompting"""
+        full_prompt = f"""
+You are a {agent_name} specialized in resume analysis.
+Previous Context: {context if context else 'None'}
+
+{prompt}
+
+Respond in a clear, structured JSON format when possible.
+"""
         
-        previous_info = Information from previous agents
-        """
-        
-        # Build the message
         message = self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
+            model=self.model,
+            max_tokens=2048,
             messages=[
                 {
                     "role": "user",
-                    "content": f"""
-{previous_info}
-
-Now answer this question:
-{question}
-"""
+                    "content": full_prompt
                 }
             ]
         )
         
-        # Get the answer
-        answer = message.content[0].text
-        return answer
+        return AgentResponse(
+            agent_name=agent_name,
+            response=message.content[0].text
+        )
+    
+    # ==================== AGENT 1: ANALYSIS AGENT ====================
+    def analyze_job_requirements(self, job_description: str) -> AgentResponse:
+        """Extract and analyze job requirements"""
+        prompt = f"""
+Analyze this job description and extract:
+1. Key Skills Required (ranked by importance)
+2. Experience Level Required
+3. Education Requirements
+4. Nice-to-Have Skills
+5. Seniority Level
+6. Key Responsibilities
 
-# ============= CREATE SPECIFIC AGENTS =============
+Job Description:
+{job_description}
 
-def job_analyzer(job_description):
-    """Agent 1: Analyze what the job needs"""
-    agent = SimpleAgent()
+Provide structured output with clear categorization.
+"""
+        return self._call_agent("Job Requirements Analyzer", prompt)
     
-    question = f"""
-    Read this job description and tell me:
-    1. What skills are MUST HAVE?
-    2. What skills are NICE TO HAVE?
-    3. How many years experience needed?
-    4. What education level?
-    
-    Job Description:
-    {job_description}
-    """
-    
-    answer = agent.ask_question(question)
-    return answer
+    # ==================== AGENT 2: RESUME ANALYZER ====================
+    def analyze_resume(self, resume_text: str, context: str = "") -> AgentResponse:
+        """Deep analysis of resume content"""
+        prompt = f"""
+Thoroughly analyze this resume and extract:
+1. Key Skills (categorized by type: Programming, Tools, Soft Skills)
+2. Experience (years, roles, achievements)
+3. Education (degree, institution, graduation year)
+4. Certifications and Achievements
+5. Strengths
+6. Potential Gaps
 
+Resume Text:
+{resume_text}
 
-def resume_analyzer(resume_text):
-    """Agent 2: Analyze what resume has"""
-    agent = SimpleAgent()
+Be thorough and precise.
+"""
+        return self._call_agent("Resume Analyzer", prompt, context)
     
-    question = f"""
-    Read this resume and tell me:
-    1. What skills does this person have?
-    2. How many years of experience?
-    3. What education do they have?
-    4. What are their strengths?
-    
-    Resume:
-    {resume_text}
-    """
-    
-    answer = agent.ask_question(question)
-    return answer
+    # ==================== AGENT 3: MATCHING AGENT ====================
+    def find_skill_matches(self, job_skills: str, resume_skills: str, context: str = "") -> AgentResponse:
+        """Find and score skill matches"""
+        prompt = f"""
+Compare these two skill sets and provide:
+1. Exact Matches (skill is directly present)
+2. Related Matches (similar technologies/concepts)
+3. Missing Skills (critical ones needed)
+4. Bonus Skills (candidate has but not required)
+5. Match Score (0-100) for each skill
+6. Overall Skill Match Percentage
 
+Required Skills from Job:
+{job_skills}
 
-def skill_matcher(job_skills, resume_skills, job_info, resume_info):
-    """Agent 3: Compare skills"""
-    agent = SimpleAgent()
-    
-    previous = f"""
-    What the job needs:
-    {job_info}
-    
-    What the candidate has:
-    {resume_info}
-    """
-    
-    question = f"""
-    Compare these two:
-    
-    Job Skills Needed: {job_skills}
-    Resume Skills: {resume_skills}
-    
-    Tell me:
-    1. Which skills match perfectly?
-    2. Which skills are missing?
-    3. Which extra skills does resume have?
-    4. What's the match percentage? (0-100)
-    """
-    
-    answer = agent.ask_question(question, previous)
-    return answer
+Resume Skills:
+{resume_skills}
 
+Provide reasoning for each match/mismatch.
+"""
+        return self._call_agent("Skill Matching Agent", prompt, context)
+    
+    # ==================== AGENT 4: EXPERIENCE SCORER ====================
+    def score_experience(self, job_requirements: str, resume_exp: str, context: str = "") -> AgentResponse:
+        """Score experience alignment"""
+        prompt = f"""
+Score the candidate's experience against requirements:
+1. Years of Experience Match
+2. Relevant Experience in Similar Roles
+3. Industry Experience Alignment
+4. Project Complexity Match
+5. Leadership/Seniority Match
+6. Technical Depth Assessment
 
-def experience_scorer(job_requirements, resume_experience, previous_context):
-    """Agent 4: Score experience"""
-    agent = SimpleAgent()
-    
-    question = f"""
-    {previous_context}
-    
-    Now evaluate experience:
-    
-    Job Requirements: {job_requirements}
-    Resume Experience: {resume_experience}
-    
-    Score out of 100:
-    1. Years of experience match?
-    2. Similar job experience?
-    3. Level of responsibility match?
-    
-    Give final experience score (0-100)
-    """
-    
-    answer = agent.ask_question(question, previous_context)
-    return answer
+Job Requirements:
+{job_requirements}
 
+Candidate Experience:
+{resume_exp}
 
-def final_scorer(all_info):
-    """Agent 5: Calculate final score"""
-    agent = SimpleAgent()
+Provide scores out of 100 for each category with justification.
+"""
+        return self._call_agent("Experience Scoring Agent", prompt, context)
     
-    question = f"""
-    Based on ALL this information:
-    {all_info}
-    
-    Give me:
-    1. Final Score (0-100)
-    2. Should we hire? (Yes/Maybe/No)
-    3. Why?
-    """
-    
-    answer = agent.ask_question(question, all_info)
-    return answer
+    # ==================== AGENT 5: HOLISTIC SCORER ====================
+    def calculate_overall_score(self, all_analyses: list, job_desc: str, context: str = "") -> AgentResponse:
+        """Calculate comprehensive match score"""
+        prompt = f"""
+Based on all the previous analyses provided, calculate:
+1. Skill Match Weight: 35%
+2. Experience Match Weight: 30%
+3. Education Match Weight: 15%
+4. Certification/Achievements Weight: 10%
+5. Fit & Culture Potential Weight: 10%
 
+Previous Analyses:
+{chr(10).join([f"- {a.agent_name}: {a.response[:200]}" for a in all_analyses])}
 
-def recommendation_generator(candidate_info, final_score, previous_info):
-    """Agent 6: Give recommendations"""
-    agent = SimpleAgent()
+Job Description Context:
+{job_desc}
+
+Provide:
+- Final Score (0-100)
+- Confidence Level
+- Hiring Recommendation (Strong Yes/Yes/Maybe/No)
+- Risk Assessment
+"""
+        return self._call_agent("Holistic Scoring Agent", prompt, context)
     
-    question = f"""
-    Based on analysis score of {final_score}:
-    {previous_info}
-    
-    Give me:
-    1. Top 3 strengths
-    2. Top 3 weaknesses
-    3. What should they learn?
-    4. Questions to ask in interview?
-    5. Is this a good hire?
-    """
-    
-    answer = agent.ask_question(question, previous_info)
-    return answer
+    # ==================== AGENT 6: RECOMMENDATION AGENT ====================
+    def generate_recommendations(self, candidate_name: str, final_score: float, 
+                                all_analyses: list, context: str = "") -> AgentResponse:
+        """Generate personalized recommendations"""
+        prompt = f"""
+Generate comprehensive recommendations for:
+Candidate: {candidate_name}
+Final Score: {final_score}/100
+
+Based on Analysis Summary:
+{chr(10).join([f"- {a.agent_name}: {a.response[:150]}" for a in all_analyses])}
+
+Provide:
+1. Hiring Recommendation (Accept/Further Discussion/Reject)
+2. Top 3 Strengths
+3. Top 3 Areas to Improve
+4. Skills to Develop Next 6 Months
+5. Suggested Interview Questions
+6. Potential in Company (Long-term growth)
+7. Department/Role Best Fit
+"""
+        return self._call_agent("Recommendation Agent", prompt, context)
