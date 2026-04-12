@@ -1,210 +1,162 @@
-# app.py (Updated sections)
-import streamlit as st
-import pandas as pd
-from chain_coordinator import ChainCoordinator
-from utils import extract_pdf, extract_docx
+import io
 import json
+import os
+from typing import Any, Dict, List
 
-st.set_page_config(
-    page_title="🤖 AI Resume Analyzer - Agentic Edition", 
-    page_icon="🤖", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+import anthropic
+import streamlit as st
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-# CSS remains the same as before...
-st.markdown("""
-    <style>
-    # [Keep your existing CSS here]
-    </style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="AI Image Editor", page_icon="🖼️", layout="wide")
 
-# ==================== SIDEBAR ====================
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def local_instruction_parser(user_prompt: str) -> Dict[str, Any]:
+    text = user_prompt.lower()
+    operations: List[Dict[str, Any]] = []
+
+    if "grayscale" in text or "black and white" in text or "b&w" in text:
+        operations.append({"type": "grayscale"})
+    if "blur" in text:
+        operations.append({"type": "blur", "radius": 1.8})
+    if "sharpen" in text or "sharp" in text:
+        operations.append({"type": "sharpness", "value": 1.4})
+    if "bright" in text or "brightness" in text:
+        operations.append({"type": "brightness", "value": 1.2})
+    if "dark" in text:
+        operations.append({"type": "brightness", "value": 0.85})
+    if "contrast" in text:
+        operations.append({"type": "contrast", "value": 1.25})
+    if "saturat" in text or "vibrant" in text:
+        operations.append({"type": "saturation", "value": 1.25})
+    if "flip horizontal" in text or "mirror" in text:
+        operations.append({"type": "flip_horizontal"})
+    if "flip vertical" in text:
+        operations.append({"type": "flip_vertical"})
+    if "rotate left" in text:
+        operations.append({"type": "rotate", "degrees": 90})
+    if "rotate right" in text:
+        operations.append({"type": "rotate", "degrees": -90})
+
+    return {"operations": operations}
+
+
+def ai_instruction_parser(user_prompt: str, api_key: str) -> Dict[str, Any]:
+    client = anthropic.Anthropic(api_key=api_key)
+    prompt = f"""
+Convert this user image editing request into strict JSON with a top-level key "operations".
+Allowed operation types only:
+- brightness (value: 0.4 to 2.0)
+- contrast (value: 0.4 to 2.0)
+- saturation (value: 0.0 to 2.0)
+- sharpness (value: 0.0 to 3.0)
+- blur (radius: 0.0 to 8.0)
+- grayscale
+- rotate (degrees: -180 to 180)
+- flip_horizontal
+- flip_vertical
+
+Return JSON only. No extra text.
+
+User request: {user_prompt}
+"""
+    message = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=500,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    content = message.content[0].text.strip()
+    return json.loads(content)
+
+
+def apply_operations(image: Image.Image, operations: List[Dict[str, Any]]) -> Image.Image:
+    edited = image.convert("RGB")
+    for op in operations:
+        op_type = op.get("type")
+        if op_type == "brightness":
+            factor = _clamp(float(op.get("value", 1.0)), 0.4, 2.0)
+            edited = ImageEnhance.Brightness(edited).enhance(factor)
+        elif op_type == "contrast":
+            factor = _clamp(float(op.get("value", 1.0)), 0.4, 2.0)
+            edited = ImageEnhance.Contrast(edited).enhance(factor)
+        elif op_type == "saturation":
+            factor = _clamp(float(op.get("value", 1.0)), 0.0, 2.0)
+            edited = ImageEnhance.Color(edited).enhance(factor)
+        elif op_type == "sharpness":
+            factor = _clamp(float(op.get("value", 1.0)), 0.0, 3.0)
+            edited = ImageEnhance.Sharpness(edited).enhance(factor)
+        elif op_type == "blur":
+            radius = _clamp(float(op.get("radius", 1.0)), 0.0, 8.0)
+            edited = edited.filter(ImageFilter.GaussianBlur(radius=radius))
+        elif op_type == "grayscale":
+            edited = ImageOps.grayscale(edited).convert("RGB")
+        elif op_type == "rotate":
+            degrees = _clamp(float(op.get("degrees", 0.0)), -180.0, 180.0)
+            edited = edited.rotate(degrees, expand=True)
+        elif op_type == "flip_horizontal":
+            edited = ImageOps.mirror(edited)
+        elif op_type == "flip_vertical":
+            edited = ImageOps.flip(edited)
+    return edited
+
+
+st.title("🖼️ AI Image Editor")
+st.caption("Upload an image, describe edits in plain language, and generate an edited version.")
+
 with st.sidebar:
-    st.markdown("### ⚙️ Agent Settings")
-    
-    use_agentic = st.toggle("🤖 Enable Agentic Analysis", value=True)
-    
-    if use_agentic:
-        api_key = st.text_input("Enter Claude API Key (optional)", type="password")
-        st.info("Agentic mode uses advanced AI analysis with chain prompting")
-    
-    st.markdown("---")
-    st.markdown("### Analysis Mode")
-    analysis_mode = st.selectbox(
-        "Select Analysis Type",
-        ["Quick Analysis", "Deep Analysis", "Detailed Report"]
-    )
+    st.subheader("Settings")
+    api_key_input = st.text_input("Anthropic API Key (optional)", type="password")
+    use_ai = st.toggle("Use AI parser", value=True)
+    st.info("If API key is not set, the app uses a safe local parser with common edit commands.")
 
-# ==================== HEADER ====================
-st.markdown("<h1>🤖 AI Resume Analyzer Pro - Agentic Edition</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Next-Generation Resume Screening with Chain Prompting</p>", 
-            unsafe_allow_html=True)
-
-# ==================== INPUT SECTION ====================
-col1, col2 = st.columns([1, 1])
-
+col1, col2 = st.columns(2)
 with col1:
-    st.markdown("### 📤 Upload Resumes")
-    uploaded_files = st.file_uploader(
-        "Drop resumes here", 
-        accept_multiple_files=True,
-        type=['pdf', 'docx', 'doc', 'txt']
-    )
-
+    uploaded_file = st.file_uploader("Upload image", type=["png", "jpg", "jpeg", "webp"])
 with col2:
-    st.markdown("### 📝 Job Description")
-    job_desc = st.text_area(
-        "Paste job requirements",
-        height=200,
-        placeholder="Enter detailed job description..."
+    user_prompt = st.text_area(
+        "Describe required changes",
+        placeholder="Example: Make the image brighter, increase contrast a bit, and blur the background lightly.",
+        height=140,
     )
 
-# ==================== ANALYSIS LOGIC ====================
-if uploaded_files and job_desc:
-    if st.button("🚀 Start Agentic Analysis"):
-        
-        # Extract texts
-        resume_texts = []
-        for file in uploaded_files:
-            try:
-                if file.type == "application/pdf":
-                    text = extract_pdf(file)
-                elif file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
-                                  "application/msword"]:
-                    text = extract_docx(file)
-                else:
-                    text = file.read().decode('utf-8')
-                resume_texts.append(text)
-            except Exception as e:
-                st.error(f"Error reading {file.name}: {e}")
-        
-        if resume_texts:
-            if use_agentic:
-                # ==================== RUN AGENTIC CHAIN ====================
-                st.markdown("---")
-                st.markdown("## 🔄 Running Agentic Analysis Chain...")
-                
-                coordinator = ChainCoordinator()
-                results = coordinator.run_analysis_chain(job_desc, resume_texts)
-                
-                # ==================== DISPLAY RESULTS ====================
-                st.markdown("---")
-                st.markdown("## 📊 Analysis Results")
-                
-                # Create summary table
-                summary_data = []
-                for result in results:
-                    try:
-                        score_data = result["overall_score"]
-                        score = score_data.get("Final Score", score_data.get("raw", "N/A"))
-                        recommendation = score_data.get("Hiring Recommendation", "Pending")
-                        
-                        summary_data.append({
-                            "Candidate #": result["candidate_idx"],
-                            "Score": str(score),
-                            "Recommendation": recommendation,
-                            "Skills Match": result["skill_matching"].get("Overall Skill Match Percentage", "N/A"),
-                            "Experience Match": result["experience_scoring"].get("Overall Score", "N/A")
-                        })
-                    except:
-                        summary_data.append({
-                            "Candidate #": result["candidate_idx"],
-                            "Score": "Error",
-                            "Recommendation": "Review",
-                            "Skills Match": "N/A",
-                            "Experience Match": "N/A"
-                        })
-                
-                summary_df = pd.DataFrame(summary_data)
-                st.dataframe(summary_df, use_container_width=True)
-                
-                # ==================== DETAILED ANALYSIS TABS ====================
-                tabs = st.tabs([f"Candidate #{i+1}" for i in range(len(results))])
-                
-                for tab, result in zip(tabs, results):
-                    with tab:
-                        # Job Analysis
-                        with st.expander("🎯 Job Requirements Analysis", expanded=False):
-                            st.json(result["job_analysis"])
-                        
-                        # Resume Analysis
-                        with st.expander("📄 Resume Analysis", expanded=True):
-                            st.json(result["resume_analysis"])
-                        
-                        # Skill Matching
-                        with st.expander("🧠 Skill Matching Results", expanded=True):
-                            st.json(result["skill_matching"])
-                        
-                        # Experience Scoring
-                        with st.expander("💼 Experience Evaluation", expanded=False):
-                            st.json(result["experience_scoring"])
-                        
-                        # Overall Score
-                        with st.expander("🏆 Overall Match Score", expanded=True):
-                            score_info = result["overall_score"]
-                            if isinstance(score_info, dict):
-                                col1, col2, col3 = st.columns(3)
-                                col1.metric("Score", score_info.get("Final Score", "N/A"))
-                                col2.metric("Confidence", score_info.get("Confidence Level", "N/A"))
-                                col3.metric("Recommendation", score_info.get("Hiring Recommendation", "N/A"))
-                            st.json(score_info)
-                        
-                        # Recommendations
-                        with st.expander("💡 Personalized Recommendations", expanded=True):
-                            rec_info = result["recommendations"]
-                            if isinstance(rec_info, dict):
-                                st.markdown("**Hiring Recommendation:** " + 
-                                          rec_info.get("Hiring Recommendation", "Pending"))
-                                
-                                if "Strengths" in rec_info or "Top 3 Strengths" in rec_info:
-                                    strengths = rec_info.get("Top 3 Strengths", rec_info.get("Strengths", []))
-                                    st.markdown("**Strengths:**")
-                                    for strength in strengths:
-                                        st.write(f"✅ {strength}")
-                                
-                                if "Areas to Improve" in rec_info or "Top 3 Areas to Improve" in rec_info:
-                                    improvements = rec_info.get("Top 3 Areas to Improve", rec_info.get("Areas to Improve", []))
-                                    st.markdown("**Areas to Improve:**")
-                                    for improvement in improvements:
-                                        st.write(f"��� {improvement}")
-                                
-                                if "Interview Questions" in rec_info or "Suggested Interview Questions" in rec_info:
-                                    questions = rec_info.get("Suggested Interview Questions", rec_info.get("Interview Questions", []))
-                                    st.markdown("**Suggested Interview Questions:**")
-                                    for q in questions:
-                                        st.write(f"❓ {q}")
-                            
-                            st.json(rec_info)
-                
-                # ==================== EXPORT ====================
-                st.markdown("---")
-                st.markdown("## 💾 Export Results")
-                
-                if st.button("📥 Generate Comprehensive Report"):
-                    export_data = []
-                    for result in results:
-                        export_data.append({
-                            "Candidate": f"Resume {result['candidate_idx']}",
-                            "Overall Score": str(result["overall_score"].get("Final Score", "N/A")),
-                            "Job Analysis": json.dumps(result["job_analysis"]),
-                            "Resume Analysis": json.dumps(result["resume_analysis"]),
-                            "Skill Matching": json.dumps(result["skill_matching"]),
-                            "Experience Scoring": json.dumps(result["experience_scoring"]),
-                            "Recommendations": json.dumps(result["recommendations"])
-                        })
-                    
-                    export_df = pd.DataFrame(export_data)
-                    csv = export_df.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Report (CSV)",
-                        data=csv,
-                        file_name="agentic_analysis_report.csv",
-                        mime="text/csv"
-                    )
-            else:
-                # Traditional analysis (keep existing code)
-                st.info("Using traditional analysis mode")
+if uploaded_file:
+    original_img = Image.open(uploaded_file)
+    st.markdown("### Original Image")
+    st.image(original_img, use_container_width=True)
 
+if uploaded_file and user_prompt:
+    if st.button("✨ Apply AI Edits"):
+        with st.spinner("Understanding instruction and editing image..."):
+            try:
+                api_key = api_key_input or os.getenv("ANTHROPIC_API_KEY", "")
+                if use_ai and api_key:
+                    parsed = ai_instruction_parser(user_prompt, api_key)
+                else:
+                    parsed = local_instruction_parser(user_prompt)
+            except Exception:
+                parsed = local_instruction_parser(user_prompt)
+
+            operations = parsed.get("operations", [])
+            if not operations:
+                st.warning("No supported edits were detected from the prompt.")
+            else:
+                edited_img = apply_operations(original_img, operations)
+                st.markdown("### Edited Image")
+                st.image(edited_img, use_container_width=True)
+                st.markdown("### Applied Operations")
+                st.json(operations)
+
+                output = io.BytesIO()
+                edited_img.save(output, format="PNG")
+                output.seek(0)
+                st.download_button(
+                    label="⬇️ Download Edited Image",
+                    data=output,
+                    file_name="edited_image.png",
+                    mime="image/png",
+                )
 else:
-    st.info("👆 Upload resumes and enter job description to begin")
+    st.info("Upload an image and describe edits to start.")
