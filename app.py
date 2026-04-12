@@ -1,9 +1,17 @@
 # app.py (Updated sections)
+import os
+
 import streamlit as st
 import pandas as pd
 from chain_coordinator import ChainCoordinator
 from utils import extract_pdf, extract_docx
 import json
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 st.set_page_config(
     page_title="🤖 AI Resume Analyzer - Agentic Edition", 
@@ -22,12 +30,22 @@ st.markdown("""
 # ==================== SIDEBAR ====================
 with st.sidebar:
     st.markdown("### ⚙️ Agent Settings")
-    
+
     use_agentic = st.toggle("🤖 Enable Agentic Analysis", value=True)
-    
+
+    api_key = ""
     if use_agentic:
         api_key = st.text_input("Enter Claude API Key (optional)", type="password")
-        st.info("Agentic mode uses advanced AI analysis with chain prompting")
+        real_key_present = bool(
+            api_key and api_key.strip() and api_key != "your_api_key_here"
+        ) or bool(
+            os.getenv("ANTHROPIC_API_KEY", "").strip()
+            and os.getenv("ANTHROPIC_API_KEY") != "your_api_key_here"
+        )
+        if real_key_present:
+            st.success("🔑 Real Claude API will be used")
+        else:
+            st.info("🤖 Mock AI (offline mode) — no API key needed")
     
     st.markdown("---")
     st.markdown("### Analysis Mode")
@@ -85,7 +103,7 @@ if uploaded_files and job_desc:
                 st.markdown("---")
                 st.markdown("## 🔄 Running Agentic Analysis Chain...")
                 
-                coordinator = ChainCoordinator()
+                coordinator = ChainCoordinator(api_key=api_key or None)
                 results = coordinator.run_analysis_chain(job_desc, resume_texts)
                 
                 # ==================== DISPLAY RESULTS ====================
