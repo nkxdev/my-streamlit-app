@@ -1,45 +1,74 @@
 # agents.py
 import anthropic
+import json
 import os
 from typing import Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+
 class AgentResponse:
     """Stores response from an agent"""
+
     def __init__(self, agent_name: str, response: str, data: dict = None):
         self.agent_name = agent_name
         self.response = response
         self.data = data or {}
 
+
+def _should_use_real_api(api_key: str) -> bool:
+    """Return True only when a genuine Anthropic API key is present and the user
+    hasn't explicitly requested the mock via the USE_MOCK_API env-var."""
+    return bool(
+        api_key
+        and api_key.strip()
+        and api_key != "your_api_key_here"
+        and os.getenv("USE_MOCK_API", "").lower() not in ("1", "true", "yes")
+    )
+
+
 class ResumeAnalysisAgents:
-    """AI Agents for resume analysis"""
-    
+    """AI Agents for resume analysis.
+
+    Uses the real Anthropic Claude API when a valid key is provided.
+    Falls back to the local mock (mock_anthropic_api.py) otherwise —
+    no server process is required; the analysis logic is imported directly.
+    """
+
     def __init__(self, api_key: Optional[str] = None):
-        # Get API key from parameter or environment
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        
-        if not self.api_key:
-            raise ValueError("❌ API Key not found! Set ANTHROPIC_API_KEY environment variable")
-        
-        self.client = anthropic.Anthropic(api_key=self.api_key)
+        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
         self.model = "claude-3-5-sonnet-20241022"
-    
+
+        if _should_use_real_api(self.api_key):
+            self.client = anthropic.Anthropic(api_key=self.api_key)
+            self.use_mock = False
+        else:
+            # Import analysis logic directly — no HTTP server needed
+            from mock_anthropic_api import analyze_prompt
+            self._analyze_fn = analyze_prompt
+            self.client = None
+            self.use_mock = True
+
     def _call_agent(self, agent_name: str, prompt: str) -> AgentResponse:
-        """Call Claude AI and get response"""
+        """Dispatch to real Claude API or local mock and return an AgentResponse."""
         try:
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=2000,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-            
-            response_text = message.content[0].text
+            if self.use_mock:
+                result = self._analyze_fn(prompt)
+                response_text = json.dumps(result, indent=2, ensure_ascii=False)
+            else:
+                message = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=2000,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                response_text = message.content[0].text
+
             return AgentResponse(agent_name=agent_name, response=response_text)
-        
+
         except Exception as e:
             error_msg = f"Error in {agent_name}: {str(e)}"
             return AgentResponse(agent_name=agent_name, response=error_msg)
